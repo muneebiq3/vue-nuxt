@@ -1,0 +1,7 @@
+{
+    "AutoPreview.serverURL": "http://localhost",
+    "AutoPreview.center": true,
+    "AutoPreview.locked": false,
+    "AutoPreview.background": "transparent",
+    "npm.autoDetect": "off"
+}

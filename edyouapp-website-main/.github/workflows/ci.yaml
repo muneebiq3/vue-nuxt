@@ -1,0 +1,78 @@
+name: ci
+on:
+  push:
+    branches:
+      - 'main'
+
+env:
+
+  UNIQUE_TAG: V${{ github.run_number }}.${{ github.run_attempt }}
+  CIMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Configure 1Password Service Account
+        uses: 1password/load-secrets-action/configure@v1
+        with:
+          service-account-token: '${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}'
+      - name: Load secrets from 1Password
+        id: load-1pass-secrets
+        uses: 1password/load-secrets-action@v1
+        with:
+          export-env: false
+        env:
+          DOCKERHUB_USERNAME: 'op://dev/hassnatahmad-tf-infra/dockerhub-hassnat-username'
+          DOCKERHUB_PASSWORD: 'op://dev/hassnatahmad-tf-infra/dockerhub-hassnat-rw-api-key'
+      -   uses: actions/checkout@v4
+      -   name: Build Base Image
+          uses: aevea/action-kaniko@master
+          id: build_base_image
+          with:
+            build_file: Dockerfile
+            username: '${{ steps.load-1pass-secrets.outputs.DOCKERHUB_USERNAME }}'
+            password: '${{ steps.load-1pass-secrets.outputs.DOCKERHUB_PASSWORD }}'
+            image: hassnat/unhtech
+            tag: edyou_website_${{ env.UNIQUE_TAG }}
+            cache: true
+            cache_registry: aevea/cache
+  deploy:
+    if: contains(github.ref, 'heads')
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    steps:
+      - name: Configure 1Password Service Account
+        uses: 1password/load-secrets-action/configure@v1
+        with:
+          service-account-token: '${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}'
+      - name: Load secrets from 1Password
+        id: load-1pass-secrets
+        uses: 1password/load-secrets-action@v1
+        with:
+          export-env: false
+        env:
+          GITOPS_GH_TOKEN: 'op://dev/hassnatahmad-tf-infra/github-ha-gh-admin-pat'
+          GITOPS_GH_USER: 'op://dev/hassnatahmad-tf-infra/github-ha-gh-admin-username'
+          GITOPS_GH_EMAIL: 'op://dev/hassnatahmad-tf-infra/github-ha-gh-admin-email'
+      - name: update gitops repo
+        run: >
+          git clone https://${{ steps.load-1pass-secrets.outputs.GITOPS_GH_USER }}:${{ steps.load-1pass-secrets.outputs.GITOPS_GH_TOKEN }}@github.com/o2-edyou/o2geeks-gitops.git
+          
+          cd o2geeks-gitops && cd chart && cd charts && cd edyou-website
+          
+
+          sed -i "s;hassnat/unhtech:edyou_website_.*$;hassnat/unhtech:edyou_website_${{ env.UNIQUE_TAG }};g" values.yaml
+          
+          git config user.email ${{ steps.load-1pass-secrets.outputs.GITOPS_GH_EMAIL }}
+
+          git config user.name "gitops"
+
+          git commit -am "Image Tag:$UNIQUE_TAG $CIMMIT_MESSAGE"
+
+          git pull --rebase
+
+          git push
